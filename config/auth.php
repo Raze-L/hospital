@@ -15,7 +15,7 @@ return [
 
     'defaults' => [
         'guard' => 'web',
-        'passwords' => 'users',
+        'passwords' => 'user',
     ],
 
     /*
@@ -89,7 +89,7 @@ return [
         ],
         'users' => [
             'driver' => 'eloquent',
-            'model' => App\Models\Users::class, // 这应该是你的用户模型的类名
+            'model' => App\Models\User::class, // 这应该是你的用户模型的类名
         ],
 
 

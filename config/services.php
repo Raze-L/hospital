@@ -30,4 +30,11 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'oss' => [
+        'access_key_id' => env('OSS_ACCESS_KEY_ID'),
+        'access_key_secret' => env('OSS_ACCESS_KEY_SECRET'),
+        'endpoint' => env('OSS_ENDPOINT'),
+        'bucket' => env('OSS_BUCKET'),
+    ],
+
 ];

@@ -2,73 +2,58 @@
 
 namespace App\Http;
 
+use App\Http\Middleware\AdminMiddleware;
+use App\Http\Middleware\AntiSpamRegistrationMiddleware;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
+use Tymon\JWTAuth\Http\Middleware\Authenticate;
 
 class Kernel extends HttpKernel
 {
     /**
-     * The application's global HTTP middleware stack.
+     * 应用程序的全局中间件堆栈.
      *
-     * These middleware are run during every request to your application.
+     * 这些中间件在每次请求应用程序时都会运行.
      *
      * @var array<int, class-string|string>
      */
     protected $middleware = [
-        // \App\Http\Middleware\TrustHosts::class,
-        \App\Http\Middleware\TrustProxies::class,
-        \Fruitcake\Cors\HandleCors::class,
-        \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
-        \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
-        \App\Http\Middleware\TrimStrings::class,
-        \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+        // ...
     ];
 
     /**
-     * The application's route middleware groups.
+     * 应用程序的路由中间件组.
      *
      * @var array<string, array<int, class-string|string>>
      */
     protected $middlewareGroups = [
         'web' => [
-            \App\Http\Middleware\EncryptCookies::class,
-            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-            \Illuminate\Session\Middleware\StartSession::class,
-            // \Illuminate\Session\Middleware\AuthenticateSession::class,
-            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
-            \App\Http\Middleware\VerifyCsrfToken::class,
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            \Illuminate\Session\Middleware\StartSession::class,
-            \Illuminate\Session\Middleware\AuthenticateSession::class,
+            // ...
         ],
 
         'api' => [
-            \Illuminate\Session\Middleware\StartSession::class,
-            \Illuminate\Session\Middleware\AuthenticateSession::class,
-            // \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            EnsureFrontendRequestsAreStateful::class,
             'throttle:api',
-            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            SubstituteBindings::class,
         ],
     ];
 
     /**
-     * The application's route middleware.
+     * 应用程序的路由中间件.
      *
-     * These middleware may be assigned to groups or used individually.
+     * 这些中间件可以分配给路由组或单个路由.
      *
      * @var array<string, class-string|string>
      */
     protected $routeMiddleware = [
-        'auth' => \App\Http\Middleware\Authenticate::class,
-        'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
-        'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
-        'can' => \Illuminate\Auth\Middleware\Authorize::class,
-        'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
-        'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
-        'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
-        'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
-        'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'jwt.role' => \App\Http\Middleware\JWTRoleAuth::class,
-        'jwt.role1' => \App\Http\Middleware\JwtAuth::class,
-        'cors' => \App\Http\Middleware\EnableCrossRequestMiddleware::class,
+        // ...
+
+        'anti.spam.registration' => AntiSpamRegistrationMiddleware::class,
+        'throttle' => ThrottleRequests::class,
+        'jwt.auth' => \App\Http\Middleware\JwtAuthenticate::class,
+        'admin' => AdminMiddleware::class,
+
     ];
 }
