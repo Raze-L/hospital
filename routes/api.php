@@ -13,23 +13,36 @@ use App\Http\Controllers\LrzOssController;
 */
 
 // 无需认证的路由
+//用户注册
 Route::post('/register', [jyhController::class, 'register']);
+//用户登录
 Route::post('/login', [jyhController::class, 'login']);
+//发送验证码
 Route::post('/send-verification-code', [jyhController::class, 'sendVerificationCode']);
-Route::post('/reset-password', [jyhController::class, 'resetPassword']);//重置密码
+//重置密码
+Route::post('/reset-password', [jyhController::class, 'resetPassword']);
 
 // 需要JWT认证的路由
 Route::middleware('auth:api')->group(function () {
+    //获取用户信息
     Route::get('/user-info', [jyhController::class, 'getUserInfo']);
+    //添加患者
     Route::post('/add-patients', [jyhController::class, 'addPatient']);
+    //获取患者列表
     Route::get('/patients', [jyhController::class, 'getPatients']);
+    //删除患者
     Route::delete('/delete-patients', [jyhController::class, 'deletePatient']);
-    Route::get('/patients/{patientId}', [jyhController::class, 'getPatientDetail']);
+    //获取患者详情
+    Route::get('/patients-detail', [jyhController::class, 'getPatientDetail']);
 
-    Route::post('/patients/{patientId}/ct-scans', [jyhController::class, 'uploadCtScan']);
-    Route::get('/patients/{patientId}/ct-scans', [jyhController::class, 'getPatientCtScans']);
+    //上传CT扫描
+    Route::post('/upload/ctscan', [jyhController::class, 'uploadCtScan']);
+    //获取患者CT扫描列表
+    Route::get('/patients/ct-scans', [jyhController::class, 'getPatientCtScans']);
 
+    //获取CT扫描分析
     Route::get('/patients-for-analysis', [jyhController::class, 'getPatientsForAnalysis']);
+    //分析CT扫描
     Route::post('/analyze-ct', [jyhController::class, 'analyzeCtScan']);
 });
 
