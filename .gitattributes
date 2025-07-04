@@ -8,3 +8,17 @@
 
 /.github export-ignore
 CHANGELOG.md export-ignore
+
+# 忽略vendor目录的换行符转换
+vendor/* text=auto
+
+# 编辑 .gitattributes
+nano .gitattributes
+
+# 添加以下内容：
+* text=auto eol=lf
+.gitattributes text eol=lf
+vendor/* text=auto
+
+# 但明确指定 .bat 文件必须使用 CRLF
+*.bat text eol=crlf

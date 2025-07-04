@@ -16,3 +16,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+use App\Http\Controllers\UserExportController;
+use App\Http\Controllers\UserImportController;
+
+Route::post('/import-users', [UserImportController::class, 'import']);
+Route::get('/export-users', [UserExportController::class, 'export']);

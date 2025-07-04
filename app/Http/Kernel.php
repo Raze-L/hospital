@@ -3,6 +3,7 @@
 namespace App\Http;
 
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Tymon\JWTAuth\Http\Middleware\Authenticate;
 
 class Kernel extends HttpKernel
 {
@@ -70,5 +71,6 @@ class Kernel extends HttpKernel
         'jwt.role' => \App\Http\Middleware\JWTRoleAuth::class,
         'jwt.role1' => \App\Http\Middleware\JwtAuth::class,
         'cors' => \App\Http\Middleware\EnableCrossRequestMiddleware::class,
+        'jwt.auth' => Tymon\JWTAuth\Http\Middleware\Authenticate::class,
     ];
 }
