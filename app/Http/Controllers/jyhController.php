@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use OSS\OssClient;
+use OSS\Core\OssException;
+use Illuminate\Support\Facades\Log;
 
 class jyhController extends Controller
 {
@@ -231,112 +234,226 @@ class jyhController extends Controller
 
         return response()->json(['message' => '患者信息添加成功', 'patient' => $patient], 201);
     }
+/**
+ * 上传CT扫描图片
+ * 
+ * @param Request $request
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function uploadCtScan(Request $request)
+{
+    // 详细记录请求信息
+    Log::info('CT图片上传请求', [
+        'user_id' => auth()->id(),
+        'patient_id' => $request->input('patient_id'),
+        'file_count' => $request->hasFile('images') ? count($request->file('images')) : 0
+    ]);
 
-    /**
-     * 上传CT扫描图片
-     * 
-     * @param Request $request
-     * @param string $patientId
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function uploadCtScan(Request $request, $patientId)
-    {
-        $validator = Validator::make($request->all(), [
-            'images' => 'required|array',
-            'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
+    // 参数验证 - 支持多文件
+    $validator = Validator::make($request->all(), [
+        'images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+        'patient_id' => 'required|string|exists:patients,patient_id',
+    ], [
+        'images.*.required' => '请至少上传一张CT图片',
+        'images.*.image' => '上传的文件必须是图片',
+        'images.*.mimes' => '只支持JPEG, PNG, JPG, GIF格式的图片',
+        'images.*.max' => '每张图片大小不能超过2MB',
+    ]);
+
+    if ($validator->fails()) {
+        Log::warning('CT图片上传参数验证失败', $validator->errors()->toArray());
+        return response()->json([
+            'code' => 422,
+            'message' => '参数验证失败',
+            'errors' => $validator->errors()
+        ], 422);
+    }
+
+    // 获取当前用户和患者信息
+    $user = auth()->user();
+    $patientId = $request->input('patient_id');
+    
+    try {
+        $patient = Patient::where('patient_id', $patientId)
+                        ->where('user_id', $user->id)
+                        ->firstOrFail();
+    } catch (\Exception $e) {
+        Log::error('患者查找失败', [
+            'patient_id' => $patientId, 
+            'user_id' => $user->id,
+            'error' => $e->getMessage()
         ]);
+        return response()->json([
+            'code' => 404,
+            'message' => '找不到该患者或您无权操作'
+        ], 404);
+    }
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
+    $images = $request->file('images');
+    $uploadedFiles = [];
+    
+    try {
+        // 获取OSS配置
+        $accessKey = config('oss.access_key') ?: env('OSS_ACCESS_KEY', env('OSS_ACCESS_KEY_ID'));
+        $secretKey = config('oss.secret_key') ?: env('OSS_SECRET_KEY', env('OSS_ACCESS_KEY_SECRET'));
+        $endpoint = config('oss.endpoint') ?: env('OSS_ENDPOINT');
+        $bucket = config('oss.bucket') ?: env('OSS_BUCKET');
+        
+        // 验证配置完整性
+        if (empty($accessKey) || empty($secretKey) || empty($endpoint) || empty($bucket)) {
+            throw new \Exception("OSS配置不完整，请检查access_key/secret_key/endpoint/bucket配置");
         }
 
-        $user = auth()->user();
-        $patient = Patient::where('patient_id', $patientId)
-                         ->where('user_id', $user->id)
-                         ->firstOrFail();
-
-        $uploadedImages = [];
-
-        foreach ($request->file('images') as $image) {
-            // 存储图片并获取URL
-            $path = $image->store('ct_scans', 'public');
-            $url = Storage::disk('public')->url($path);
-
+        // 正确初始化OSS客户端
+        $ossClient = new OssClient($accessKey, $secretKey, $endpoint, false);
+        
+        // 循环处理每个上传的文件
+        foreach ($images as $image) {
+            // 生成唯一文件名和存储路径
+            $fileName = 'ctscan_'.$patient->id.'_'.md5(time().uniqid()).'.'.$image->getClientOriginalExtension();
+            $objectPath = 'patients/' . $patient->patient_id . '/' . $fileName;
+            
+            // 读取文件内容
+            $fileContent = file_get_contents($image->getRealPath());
+            if (!$fileContent) {
+                Log::warning('无法读取文件内容', ['file' => $image->getClientOriginalName()]);
+                continue;
+            }
+            
+            // 上传到OSS
+            $uploadResult = $ossClient->putObject($bucket, $objectPath, $fileContent, [
+                OssClient::OSS_CONTENT_TYPE => $image->getMimeType(),
+                OssClient::OSS_LENGTH => strlen($fileContent),
+                OssClient::OSS_CHECK_MD5 => true
+            ]);
+            
+            // 生成正确的三级域名URL
+            $url = 'https://' . $bucket . '.' . $endpoint . '/' . $objectPath;
+            
             // 创建CT扫描记录
             $ctScan = CtScan::create([
-                'patient_id' => $patient->id,
+                'patient_id' => $patient->patient_id,
                 'image_url' => $url,
+                'original_name' => $image->getClientOriginalName(),
+                'storage_path' => $objectPath,
+                'file_size' => $image->getSize()
             ]);
-
-            $uploadedImages[] = [
+            
+            // 记录上传成功的文件信息
+            $uploadedFiles[] = [
                 'id' => $ctScan->id,
-                'url' => $url
+                'url' => $url,
+                'oss_path' => $objectPath,
+                'file_info' => [
+                    'original_name' => $image->getClientOriginalName(),
+                    'size' => $image->getSize(),
+                    'mime_type' => $image->getMimeType()
+                ]
             ];
         }
-
-        return response()->json([
-            'message' => 'CT图片上传成功',
-            'images' => $uploadedImages
-        ], 201);
-    }
-
-    /**
-     * 获取患者列表
-     * 
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function getPatients(Request $request)
-    {
-        $user = auth()->user();
         
-        $query = Patient::where('user_id', $user->id)
-            ->withCount('ctScans')
-            ->withCount(['ctScans as analyzed_count' => function($query) {
-                $query->select(DB::raw('count(distinct analyses.id)'))
-                      ->leftJoin('analyses', 'ct_scans.id', '=', 'analyses.ct_scan_id');
-            }]);
-
-        // 搜索条件
-        // 从 JSON 请求体获取筛选条件
-        $filters = $request->json()->all();
-
-        // 搜索条件
-        if (isset($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(function ($q) use ($search) {
-                $q->where('patient_id', 'like', '%' . $search . '%')
-                  ->orWhere('name', 'like', '%' . $search . '%');
-            });
+        // 检查是否有成功上传的文件
+        if (empty($uploadedFiles)) {
+            throw new \Exception("没有文件成功上传");
         }
-
-        // 性别筛选
-        if (isset($filters['gender']) && in_array($filters['gender'], ['male', 'female'])) {
-            $query->where('gender', $filters['gender']);
-        }
-
-        // 状态筛选
-        if (isset($filters['status'])) {
-            if ($filters['status'] === 'analyzed') {
-                $query->has('ctScans.analysis');
-            } elseif ($filters['status'] === 'pending') {
-                $query->doesntHave('ctScans.analysis');
-            }
-        }
-
-        // 获取分页参数
-        $perPage = isset($filters['per_page']) ? (int)$filters['per_page'] : 10;
-        $page = isset($filters['page']) ? (int)$filters['page'] : 1;
-        $patients = $query->paginate($perPage, ['*'], 'page', $page);
-
-        // 添加状态字段
-        $patients->getCollection()->transform(function ($patient) {
-            $patient->status = $patient->analyzed_count > 0 ? 'analyzed' : 'pending';
-            return $patient;
-        });
-
-        return response()->json($patients);
+        
+        Log::info('所有CT图片上传完成', [
+            'total_count' => count($images),
+            'success_count' => count($uploadedFiles),
+            'patient_id' => $patient->patient_id
+        ]);
+        
+        return response()->json([
+            'code' => 201,
+            'message' => 'CT图片上传成功',
+            'data' => [
+                'total_files' => count($images),
+                'uploaded_files' => count($uploadedFiles),
+                'files' => $uploadedFiles,
+                'patient_info' => [
+                    'id' => $patient->id,
+                    'patient_id' => $patient->patient_id
+                ]
+            ]
+        ], 201);
+        
+    } catch (OssException $e) {
+        $debugInfo = [
+            'error' => $e->getMessage(),
+            'request_id' => $e->getRequestId(),
+            'code' => $e->getErrorCode(),
+            'endpoint_used' => $endpoint ?? '未获取',
+            'bucket_used' => $bucket ?? '未获取',
+        ];
+        
+        Log::error('OSS上传异常', $debugInfo);
+        
+        return response()->json([
+            'code' => 500,
+            'message' => 'OSS上传失败',
+            'error' => $e->getMessage(),
+            'oss_code' => $e->getErrorCode(),
+            'request_id' => $e->getRequestId(),
+            'debug' => config('app.debug') ? $debugInfo : null
+        ], 500);
+        
+    } catch (\Exception $e) {
+        Log::error('CT图片上传系统异常', [
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'patient_info' => [
+                'user_id' => $user->id ?? null,
+                'patient_id_requested' => $patientId,
+                'patient_found' => isset($patient) ? [
+                    'id' => $patient->id,
+                    'patient_id' => $patient->patient_id
+                ] : '未找到'
+            ]
+        ]);
+        
+        return response()->json([
+            'code' => 500,
+            'message' => '系统错误: ' . $e->getMessage(),
+            'debug' => config('app.debug') ? [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'hint' => '请检查患者ID关联关系'
+            ] : null
+        ], 500);
     }
+
+}  
+
+
+/**
+ * 获取患者详情（开放权限版）
+ * 
+ * @param \Illuminate\Http\Request $request
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getPatientDetail(Request $request)
+{
+    $patientId = $request->input('patient_id');
+    
+    // 保留原有参数验证
+    if (!$patientId) {
+        return response()->json([
+            'code' => 422,
+            'message' => '参数验证失败',
+            'errors' => ['patient_id' => ['patient_id 不能为空']]
+        ], 422);
+    }
+
+    // 仅移除用户ID过滤条件（保留其他所有逻辑）
+    $patient = Patient::where('patient_id', $patientId)
+                    ->with(['ctScans' => function($query) {
+                        $query->with('analysis');
+                    }])
+                    ->firstOrFail();
+
+    return response()->json($patient);
+}
 
     /**
      * 删除患者信息（从请求体获取 patientId）
@@ -363,27 +480,46 @@ class jyhController extends Controller
 
         return response()->json(['message' => '患者删除成功']);
     }
-
-    /**
-     * 获取患者详情
-     * 
-     * @param string $patientId
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function getPatientDetail($patientId)
-    {
-        $user = auth()->user();
-        
-        $patient = Patient::where('patient_id', $patientId)
-                         ->where('user_id', $user->id)
-                         ->with(['ctScans' => function($query) {
-                             $query->with('analysis');
-                         }])
-                         ->firstOrFail();
-
-        return response()->json($patient);
+/**
+ * 获取患者详情（公开访问）
+ * 
+ * @param \Illuminate\Http\Request $request
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getPatientDetailPublic(Request $request)
+{
+    $patientId = $request->input('patient_id');
+    
+    if (!$patientId) {
+        return response()->json([
+            'code' => 400,
+            'message' => '缺少必要参数',
+            'errors' => [
+                'patient_id' => ['patient_id 参数是必需的']
+            ]
+        ], 400);
     }
 
+    $patient = Patient::where('patient_id', $patientId)
+                     ->with(['ctScans' => function($query) {
+                         $query->with('analysis')->orderBy('created_at', 'desc');
+                     }])
+                     ->first();
+
+    if (!$patient) {
+        return response()->json([
+            'code' => 404,
+            'message' => '找不到该患者',
+            'hint' => '请检查 patient_id 是否正确'
+        ], 404);
+    }
+
+    return response()->json([
+        'code' => 200,
+        'message' => '获取患者信息成功',
+        'data' => $patient
+    ]);
+}
     /**
      * 获取待分析患者列表
      * 
@@ -417,25 +553,61 @@ class jyhController extends Controller
     }
 
     /**
-     * 获取患者CT扫描列表
-     * 
-     * @param string $patientId
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function getPatientCtScans($patientId)
-    {
-        $user = auth()->user();
-        
-        $patient = Patient::where('patient_id', $patientId)
-                         ->where('user_id', $user->id)
-                         ->firstOrFail();
+ * 公开获取患者CT扫描列表（无需认证）
+ * 
+ * @param \Illuminate\Http\Request $request
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getPatientCtScans(Request $request)
+{
+    // 验证参数
+    $validator = Validator::make($request->all(), [
+        'patient_id' => 'required|string|exists:patients,patient_id'
+    ]);
 
-        $ctScans = CtScan::where('patient_id', $patient->id)
-                        ->withExists(['analysis'])
-                        ->get();
-
-        return response()->json($ctScans);
+    if ($validator->fails()) {
+        return response()->json([
+            'code' => 422,
+            'message' => '参数验证失败',
+            'errors' => $validator->errors()
+        ], 422);
     }
+
+    $patient = Patient::where('patient_id', $request->patient_id)
+                     ->firstOrFail();
+
+    $ctScans = CtScan::where('patient_id', $patient->patient_id)
+                    ->with(['analysis'])
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+
+    // 过滤敏感字段
+    $filteredScans = $ctScans->map(function ($scan) {
+        return [
+            'id' => $scan->id,
+            'image_url' => $scan->image_url,
+            'created_at' => $scan->created_at,
+            'analysis' => $scan->analysis ? [
+                'result' => $scan->analysis->result,
+                'created_at' => $scan->analysis->created_at
+            ] : null
+        ];
+    });
+
+    return response()->json([
+        'code' => 200,
+        'message' => '获取CT扫描列表成功',
+        'data' => [
+            'patient' => [
+                'patient_id' => $patient->patient_id,
+                'name' => $patient->name,
+                'gender' => $patient->gender,
+                'age' => $patient->age
+            ],
+            'ct_scans' => $filteredScans
+        ]
+    ]);
+}
 
     /**
      * 分析CT扫描图像
@@ -489,7 +661,89 @@ class jyhController extends Controller
         return response()->json([
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60
+            'expires_in' => auth()->factory()->getTTL() * 60
         ]);
     }
+
+
+    public function store(Request $request)
+    {
+        // 验证请求中是否包含文件
+        if (!$request->hasFile('file')) {
+            return response()->json(['message' => 'No file uploaded'], 400);
+        }
+
+        // 获取上传的文件
+        $file = $request->file('file');
+
+        // 验证文件是否有效
+        if (!$file->isValid()) {
+            return response()->json(['message' => 'File is not valid'], 400);
+        }
+
+        // 设置文件在OSS中的存储路径
+        $filePath = 'uploads/' . $file->getClientOriginalName();
+
+        // 配置OSS客户端
+        try {
+            $ossClient = new OssClient(
+                env('OSS_ACCESS_KEY_ID'),
+                env('OSS_ACCESS_KEY_SECRET'),
+                env('OSS_ENDPOINT')
+            );
+
+            // 将文件上传到OSS
+            $ossClient->putObject(
+                env('OSS_BUCKET'),
+                $filePath,
+                file_get_contents($file->getRealPath())
+            );
+
+            return response()->json(['message' => 'File uploaded successfully']);
+        } catch (OssException $e) {
+            return response()->json(['message' => 'Upload failed', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }
