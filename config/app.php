@@ -107,7 +107,8 @@ return [
     */
 
     'faker_locale' => 'en_US',
-
+    'dashscope_api_key' => env('DASHSCOPE_API_KEY'),
+    'dashscope_api_url' => env('DASHSCOPE_API_URL'),
     /*
     |--------------------------------------------------------------------------
     | Encryption Key
@@ -139,6 +140,7 @@ return [
         /*
          * Laravel Framework Service Providers...
          */
+
         Illuminate\Auth\AuthServiceProvider::class,
         Illuminate\Broadcasting\BroadcastServiceProvider::class,
         Illuminate\Bus\BusServiceProvider::class,

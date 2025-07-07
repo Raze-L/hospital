@@ -37,4 +37,8 @@ return [
         'bucket' => env('OSS_BUCKET'),
     ],
 
+
+    'aliyun_baijiane' => [
+        'api_key' => env('ALIYUN_BAIJIANE_API_KEY'),
+    ],
 ];
