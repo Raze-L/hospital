@@ -520,37 +520,31 @@ public function getPatientDetailPublic(Request $request)
         'data' => $patient
     ]);
 }
+    
     /**
-     * 获取待分析患者列表
+     * 查看图片的分析结果
      * 
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
-    public function getPatientsForAnalysis(Request $request)
+    public function getImageAnalysisResult(Request $request)
     {
-        $user = auth()->user();
-        
-        $query = Patient::where('user_id', $user->id)
-            ->withCount(['ctScans as has_unanalyzed' => function($query) {
-                $query->doesntHave('analysis');
-            }])
-            ->whereHas('ctScans', function($query) {
-                $query->doesntHave('analysis');
-            });
+        // 验证请求体，确保包含 ct_scan_id
+        $request->validate([
+            'ct_scan_id' => 'required|integer',
+        ]);
 
-        // 搜索条件
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('patient_id', 'like', '%' . $search . '%')
-                  ->orWhere('name', 'like', '%' . $search . '%');
-            });
+        // 从 analyses 表中获取分析结果
+        $analysis = \App\Models\Analysis::where('ct_scan_id', $request->ct_scan_id)->first();
+
+        if (!$analysis) {
+            return response()->json(['message' => '未找到对应的分析结果'], 404);
         }
 
-        $patients = $query->paginate(4); // 每页4条
-
-        return response()->json($patients);
+        return response()->json($analysis);
     }
+
+
 
     /**
  * 公开获取患者CT扫描列表（无需认证）
