@@ -40,7 +40,7 @@ Route::middleware('auth:api')->group(function () {
     //获取患者CT扫描列表
     Route::get('/patients/ct-scans', [jyhController::class, 'getPatientCtScans']);
 
-    //获取CT扫描分析
+    //获取分析结果
     Route::get('/patients-for-analysis', [jyhController::class, 'getPatientsForAnalysis']);
     //分析CT扫描
     Route::post('/analyze-ct', [jyhController::class, 'analyzeCtScan']);
