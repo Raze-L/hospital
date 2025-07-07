@@ -10,6 +10,7 @@ class CreateCtScansTable extends Migration
         Schema::create('ct_scans', function (Blueprint $table) {
             $table->id();
             $table->foreignId('patient_id')->constrained()->onDelete('cascade');
+            $table->enum('is_analysed', ['false', 'ture'])->default('false');
             $table->string('image_url', 255);
             $table->timestamps();
         });
